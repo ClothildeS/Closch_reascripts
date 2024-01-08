@@ -7,6 +7,7 @@ end
 sep = "," -- default separator
 default_name = "Name"
 default_renderpreset = "Render preset"
+default_duration = 1 --default length of subprojects
 offset_position_minute = 1
 ----------------------------------------------------- END OF USER CONFIG AREA
 name_column = 0
@@ -91,20 +92,39 @@ end
 
 --create tracks from table
 function Create_Tracks()
-  
+  reaper.Main_OnCommand(40297,0) --unselect all tracks
+
+  local bool = false
+
   for i=1, #track_list do
-    reaper.InsertTrackAtIndex(reaper.CountTracks(0), true)
-    local track = reaper.GetTrack(0, reaper.CountTracks(0)-1)
-    reaper.GetSetMediaTrackInfo_String(track, "P_NAME", track_list[i][name_column], true)
-    reaper.SetTrackSelected(track, true)
+    if not IsAlreadyCreated(track_list[i][name_column]) then
+      reaper.InsertTrackAtIndex(reaper.CountTracks(0), true)
+      local track = reaper.GetTrack(0, reaper.CountTracks(0)-1)
+      reaper.GetSetMediaTrackInfo_String(track, "P_NAME", track_list[i][name_column], true)
+      reaper.SetTrackSelected(track, true)
+      bool = true
+    end
   end
 
-  return 1
+  return bool
 
 end
 
+function IsAlreadyCreated(tracklist_name)
+  local bool = false
+  for i=0, reaper.CountTracks(0)-1 do
+      local track_ref = reaper.GetTrack(0, i)
+      local retval, track_name = reaper.GetTrackName(track_ref)
+      if tracklist_name == track_name then
+        --Msg("Track already created")
+        bool = true
+      end
+  end
+  return bool
+end
+
 -- Get user input for selection duration
-local function GetSelectionDuration()
+function GetSelectionDuration()
   local retval, duration = reaper.GetUserInputs("Selection duration of subprojects", 1, "Duration in minutes:", "")
   if retval then
     return tonumber(duration)
@@ -124,26 +144,31 @@ function GetSelectedTracks()
   return selected_tracks
 end
 
+function GetLineIndex(track_name)
+  for i=1, #track_list do
+    local list_name = track_list[i][name_column]
+    if list_name == track_name then
+      return i
+    end
+  end
+end
+
 -- Create project markers for eachtrack
 function Create_markers(duration, tracks)
  
   -- create markers for the selected tracks
   for i, track in ipairs(tracks) do
- 
-      --create first marker
-      if i == 1 then do
-        -- first marker with track name
-        reaper.AddProjectMarker2(0, false, offset_position_minute*60 , 0, track_list[i][name_column], i, 0)
-        -- first marker with render presets (index start at 101)
-        reaper.AddProjectMarker2(0, false, offset_position_minute*60 , 0, track_list[i][renderpreset_column], i+100, 0)
-        end
+    local track_ref = track.track
+    local track_index = reaper.GetMediaTrackInfo_Value(track_ref, "IP_TRACKNUMBER")
+    local retval, track_name = reaper.GetTrackName(track.track)
+    local line_index = GetLineIndex(track_name)
 
-      else
-         -- create markers with track name
-         reaper.AddProjectMarker2(0, false, ((track.index-1) * 2 * duration+ offset_position_minute)* 60, 0, track_list[i][name_column], i, 0)
-         -- create markers with render presets
-         reaper.AddProjectMarker2(0, false, ((track.index-1) * 2 * duration+ offset_position_minute)* 60, 0, track_list[i][renderpreset_column], i+100, 0)
-      end
+
+    -- create markers with track name
+    reaper.AddProjectMarker2(0, false, ((track_index-1) * 2 * duration+ offset_position_minute)* 60, 0, track_list[line_index][name_column], track_index, 0)
+    -- create markers with render presets
+    reaper.AddProjectMarker2(0, false, ((track_index-1) * 2 * duration+ offset_position_minute)* 60, 0, track_list[line_index][renderpreset_column], track_index+100, 0)
+      
   end
 end
 
@@ -163,12 +188,14 @@ function Set_time_selection(marker_index, duration)
 end
 
 --create subprojects at marker with duration
-function Create_subprojects(tracks)
+function Create_subprojects(duration, tracks)
   for i, track in ipairs(tracks) do
       Deselect_tracks(tracks)
+      local track_ref = track.track
+      local track_index = reaper.GetMediaTrackInfo_Value(track_ref, "IP_TRACKNUMBER")
       reaper.SetTrackSelected(track.track, true)
-      Set_time_selection(i , duration)
-      reaper.Main_OnCommand(41997, 0)
+      Set_time_selection(track_index , duration)
+      reaper.Main_OnCommand(41997, 0) -- move tracks to subprojects
   end
 end
 
@@ -197,12 +224,12 @@ function Main()
     local tracks_Ready = Create_Tracks()
     if not tracks_Ready then return end
 
-    duration = GetSelectionDuration()
-    if not duration then return end
+    -- duration = GetSelectionDuration()
+    -- if not duration then return end
 
     local tracks = GetSelectedTracks()
-    Create_markers(duration, tracks)
-    Create_subprojects(tracks)
+    Create_markers(default_duration, tracks)
+    Create_subprojects(default_duration, tracks)
     Rename_tracks(tracks)
   end
 
